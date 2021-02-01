@@ -4,26 +4,27 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/hyperledger/burrow/execution/exec"
-	"google.golang.org/genproto/googleapis/cloud/aiplatform/v1beta1/schema/predict/params"
+	"math/big"
 
 	bin "github.com/hyperledger/burrow/binary"
 	"github.com/hyperledger/burrow/crypto"
 	"github.com/hyperledger/burrow/execution/engine"
 	"github.com/hyperledger/burrow/execution/errors"
-	"github.com/hyperledger/burrow/execution/native"
 	lifeExec "github.com/perlin-network/life/exec"
 )
 
 type Contract struct {
-	*WVM
+	vm *WVM
 	code []byte
 }
 
 const Success = 0
 const Error = 1
 
+const ValueByteSize = 16
+
 func (c *Contract) Call(state engine.State, params engine.CallParams) (output []byte, err error) {
-	return native.Call(state, params, c.execute)
+	return engine.Call(state, params, c.execute)
 }
 
 func (c *Contract) execute(state engine.State, params engine.CallParams) ([]byte, error) {
@@ -37,7 +38,7 @@ func (c *Contract) execute(state engine.State, params engine.CallParams) ([]byte
 		code:     c.code,
 	}
 	// panics in ResolveFunc() will be recovered for us, no need for our own
-	vm, err := lifeExec.NewVirtualMachine(c.code, c.vmConfig, ctx, nil)
+	vm, err := lifeExec.NewVirtualMachine(c.code, c.vm.vmConfig, ctx, nil)
 	if err != nil {
 		return nil, errors.Errorf(errors.Codes.InvalidContract, "%s: %v", errHeader, err)
 	}
@@ -82,61 +83,29 @@ func (ctx *context) ResolveFunc(module, field string) lifeExec.FunctionImport {
 	switch field {
 	case "call":
 		return func(vm *lifeExec.VirtualMachine) int64 {
-			gasLimit := uint64(vm.GetCurrentFrame().Locals[0])
+			gasLimit := big.NewInt(vm.GetCurrentFrame().Locals[0])
 			addressPtr := uint32(vm.GetCurrentFrame().Locals[1])
 			valuePtr := int(uint32(vm.GetCurrentFrame().Locals[2]))
 			dataPtr := uint32(vm.GetCurrentFrame().Locals[3])
 			dataLen := uint32(vm.GetCurrentFrame().Locals[4])
 
-			var target crypto.Address
+			// TODO: avoid panic?
+			target := crypto.MustAddressFromBytes(vm.Memory[addressPtr:addressPtr+crypto.AddressLength])
 
-			copy(target[:], vm.Memory[addressPtr:addressPtr+crypto.AddressLength])
+			// TODO: is this guaranteed to be okay? Should be avoid panic here if out of bounds?
+			value := bin.BigIntFromLittleEndianBytes(vm.Memory[valuePtr:ValueByteSize])
 
-			// TODO: padding, anything else?
-			value := binary.BigEndian.Uint64(vm.Memory[valuePtr:8])
-
-			// Establish a stack frame and perform the call
-			childCallFrame, err := ctx.state.CallFrame.NewFrame()
-			if ctx.PushError(err) {
-				return Error
-			}
-			childState := engine.State{
-				CallFrame:  childCallFrame,
-				Blockchain: ctx.state.Blockchain,
-				EventSink:  ctx.state.EventSink,
-			}
-			// Ensure that gasLimit is reasonable
-			if *ctx.params.Gas < gasLimit {
-				// EIP150 - the 63/64 rule - rather than errors.CodedError we pass this specified fraction of the total available gas
-				gasLimit = *ctx.params.Gas - *ctx.params.Gas/64
-			}
-			// NOTE: we will return any used gas later.
-			*ctx.params.Gas -= gasLimit
-
-			// Setup callee params for call type
-			calleeParams := engine.CallParams{
-				Origin:   ctx.params.Origin,
-				CallType: exec.CallTypeCall,
-				Caller:   ctx.params.Callee,
+			var err error
+			ctx.returnData, err = engine.CallFromSite(ctx.state, ctx, ctx.vm, ctx.params, engine.CallParams{
+				CallType: exec.CallTypeCall, // TODO: other call types?
 				Callee:   target,
 				Input:    vm.Memory[dataPtr : dataPtr+dataLen],
-				Value:    value,
-				Gas:      &gasLimit,
-			}
-
-			acc := engine.GetAccount(ctx.state.CallFrame, &ctx.Maybe, target)
-
-			ctx.returnData, err = ctx.Dispatch(acc).Call(childState, calleeParams)
-
-			if err == nil {
-				// Sync error is a hard stop
-				ctx.PushError(childState.CallFrame.Sync())
-			}
-			// Handle remaining gas.
-			*ctx.params.Gas += *calleeParams.Gas
+				Value:    *value,
+				Gas:      gasLimit,
+			})
 
 			if err != nil {
-				// TODO: Execution reverted support (i.e. writing an error message)?
+				// TODO: Execution reverted support (i.e. writing an error message on revert)?
 				return Error
 			}
 			return Success
@@ -257,14 +226,10 @@ func (ctx *context) ResolveFunc(module, field string) lifeExec.FunctionImport {
 
 	case "getCallValue":
 		return func(vm *lifeExec.VirtualMachine) int64 {
-
 			valuePtr := int(uint32(vm.GetCurrentFrame().Locals[0]))
 
 			// ewasm value is little endian 128 bit value
-			bs := make([]byte, 16)
-			binary.LittleEndian.PutUint64(bs, ctx.params.Value)
-
-			copy(vm.Memory[valuePtr:], bs)
+			copy(vm.Memory[valuePtr:], bin.BigIntToLittleEndianBytes(&ctx.params.Value))
 
 			return Success
 		}

@@ -28,12 +28,11 @@ type Externals struct {
 	externals Dispatcher
 }
 
-
 var _ ExternalDispatcher = (*Externals)(nil)
 
 func (ed *Externals) Dispatch(acc *acm.Account) Callable {
 	// Try external calls then fallback to EVM
-	return  ed.externals.Dispatch(acc)
+	return ed.externals.Dispatch(acc)
 }
 
 func (ed *Externals) SetExternals(externals Dispatcher) {

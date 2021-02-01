@@ -73,4 +73,3 @@ func (st *CallFrame) CreateAccount(creator, address crypto.Address) error {
 	}
 	return CreateAccount(st, address)
 }
-

@@ -5,6 +5,7 @@ package evm
 
 import (
 	"fmt"
+
 	"github.com/hyperledger/burrow/acm"
 	"github.com/hyperledger/burrow/acm/acmstate"
 	"github.com/hyperledger/burrow/execution/engine"

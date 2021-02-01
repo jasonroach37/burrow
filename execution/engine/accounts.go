@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+
 	"github.com/hyperledger/burrow/acm"
 	"github.com/hyperledger/burrow/acm/acmstate"
 	"github.com/hyperledger/burrow/crypto"
@@ -9,7 +10,12 @@ import (
 	"github.com/hyperledger/burrow/permission"
 )
 
-func GetAccount(st acmstate.Reader, m *errors.Maybe, address crypto.Address) *acm.Account {
+type Maybe interface {
+	PushError(err error) bool
+	Error() error
+}
+
+func GetAccount(st acmstate.Reader, m Maybe, address crypto.Address) *acm.Account {
 	acc, err := st.GetAccount(address)
 	if err != nil {
 		m.PushError(err)
@@ -20,7 +26,7 @@ func GetAccount(st acmstate.Reader, m *errors.Maybe, address crypto.Address) *ac
 
 // Guaranteed to return a non-nil account, if the account does not exist returns a pointer to the zero-value of Account
 // and pushes an error.
-func MustGetAccount(st acmstate.Reader, m *errors.Maybe, address crypto.Address) *acm.Account {
+func MustGetAccount(st acmstate.Reader, m Maybe, address crypto.Address) *acm.Account {
 	acc := GetAccount(st, m, address)
 	if acc == nil {
 		m.PushError(errors.Errorf(errors.Codes.NonExistentAccount, "account %v does not exist", address))
@@ -85,3 +91,8 @@ func CreateAccount(st acmstate.ReaderWriter, address crypto.Address) error {
 	return st.UpdateAccount(&acm.Account{Address: address})
 }
 
+func AddressFromName(name string) (address crypto.Address) {
+	hash := crypto.Keccak256([]byte(name))
+	copy(address[:], hash[len(hash)-crypto.AddressLength:])
+	return
+}

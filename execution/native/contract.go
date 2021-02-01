@@ -58,7 +58,7 @@ var _ Native = &Contract{}
 // Create a new native contract description object by passing a comment, name
 // and a list of member functions descriptions
 func NewContract(name string, comment string, logger *logging.Logger, fs ...Function) (*Contract, error) {
-	address := AddressFromName(name)
+	address := engine.AddressFromName(name)
 	functionsByID := make(map[abi.FunctionID]*Function, len(fs))
 	functions := make([]*Function, len(fs))
 	logger = logger.WithScope("NativeContract")
@@ -169,8 +169,3 @@ func (c *Contract) ContractMeta() []*acm.ContractMeta {
 	}
 }
 
-func AddressFromName(name string) (address crypto.Address) {
-	hash := crypto.Keccak256([]byte(name))
-	copy(address[:], hash[len(hash)-crypto.AddressLength:])
-	return
-}

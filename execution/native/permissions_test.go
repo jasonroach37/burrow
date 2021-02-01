@@ -95,7 +95,7 @@ func TestSNativeContractDescription_Dispatch(t *testing.T) {
 	assert.Equal(t, errors.Codes.NativeFunction, errors.GetCode(err))
 
 	// Grant all permissions and dispatch should success
-	err = UpdateAccount(state, caller.Address, func(acc *acm.Account) error {
+	err = engine.UpdateAccount(state, caller.Address, func(acc *acm.Account) error {
 		return acc.Permissions.Base.Set(permission.SetBase, true)
 	})
 	require.NoError(t, err)
@@ -120,7 +120,7 @@ func TestHasPermission(t *testing.T) {
 	require.NoError(t, err)
 
 	acc := &acm.Account{
-		Address: AddressFromName("frog"),
+		Address: engine.AddressFromName("frog"),
 		Permissions: permission.AccountPermissions{
 			Base: base,
 		},

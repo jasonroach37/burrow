@@ -16,7 +16,6 @@ import (
 	"github.com/hyperledger/burrow/execution/evm/abi"
 	. "github.com/hyperledger/burrow/execution/evm/asm"
 	"github.com/hyperledger/burrow/execution/exec"
-	"github.com/hyperledger/burrow/execution/native"
 	"github.com/hyperledger/burrow/permission"
 	"github.com/hyperledger/burrow/txs"
 )
@@ -27,7 +26,7 @@ type Contract struct {
 }
 
 func (c *Contract) Call(state engine.State, params engine.CallParams) ([]byte, error) {
-	return native.Call(state, params, c.execute)
+	return engine.Call(state, params, c.execute)
 }
 
 // Executes the EVM code passed in the appropriate context
@@ -63,9 +62,9 @@ func (c *Contract) execute(st engine.State, params engine.CallParams) ([]byte, e
 		}
 
 		var op = c.GetSymbol(pc)
-		c.debugf("(pc) %-3d (op) %-14s (st) %-4d (gas) %d", pc, op.String(), stack.Len(), *params.Gas)
+		c.debugf("(pc) %-3d (op) %-14s (st) %-4d (gas) %d", pc, op.String(), stack.Len(), params.Gas)
 		// Use BaseOp gas.
-		maybe.PushError(useGasNegative(params.Gas, native.GasBaseOp))
+		maybe.PushError(engine.UseGasNegative(params.Gas, engine.GasBaseOp))
 
 		switch op {
 
@@ -319,7 +318,7 @@ func (c *Contract) execute(st engine.State, params engine.CallParams) ([]byte, e
 			}
 
 		case SHA3: // 0x20
-			maybe.PushError(useGasNegative(params.Gas, native.GasSha3))
+			maybe.PushError(engine.UseGasNegative(params.Gas, engine.GasSha3))
 			offset, size := stack.PopBigInt(), stack.PopBigInt()
 			data := memory.Read(offset, size)
 			data = crypto.Keccak256(data)
@@ -332,7 +331,7 @@ func (c *Contract) execute(st engine.State, params engine.CallParams) ([]byte, e
 
 		case BALANCE: // 0x31
 			address := stack.PopAddress()
-			maybe.PushError(useGasNegative(params.Gas, native.GasGetAccount))
+			maybe.PushError(engine.UseGasNegative(params.Gas, engine.GasGetAccount))
 			balance := engine.MustGetAccount(st.CallFrame, maybe, address).Balance
 			stack.Push64(balance)
 			c.debugf(" => %v (%v)\n", balance, address)
@@ -346,7 +345,7 @@ func (c *Contract) execute(st engine.State, params engine.CallParams) ([]byte, e
 			c.debugf(" => %v\n", params.Caller)
 
 		case CALLVALUE: // 0x34
-			stack.Push64(params.Value)
+			stack.PushBigInt(&params.Value)
 			c.debugf(" => %v\n", params.Value)
 
 		case CALLDATALOAD: // 0x35
@@ -387,7 +386,7 @@ func (c *Contract) execute(st engine.State, params engine.CallParams) ([]byte, e
 
 		case EXTCODESIZE: // 0x3B
 			address := stack.PopAddress()
-			maybe.PushError(useGasNegative(params.Gas, native.GasGetAccount))
+			maybe.PushError(engine.UseGasNegative(params.Gas, engine.GasGetAccount))
 			acc := engine.MustGetAccount(st.CallFrame, maybe, address)
 			if acc == nil {
 				stack.Push(Zero256)
@@ -399,7 +398,7 @@ func (c *Contract) execute(st engine.State, params engine.CallParams) ([]byte, e
 			}
 		case EXTCODECOPY: // 0x3C
 			address := stack.PopAddress()
-			maybe.PushError(useGasNegative(params.Gas, native.GasGetAccount))
+			maybe.PushError(engine.UseGasNegative(params.Gas, engine.GasGetAccount))
 			acc := engine.MustGetAccount(st.CallFrame, maybe, address)
 			if acc == nil {
 				maybe.PushError(errors.Codes.UnknownAddress)
@@ -480,7 +479,7 @@ func (c *Contract) execute(st engine.State, params engine.CallParams) ([]byte, e
 			c.debugf(" => %d\n", number)
 
 		case GASLIMIT: // 0x45
-			stack.Push64(*params.Gas)
+			stack.PushBigInt(params.Gas)
 			c.debugf(" => %v\n", *params.Gas)
 
 		case POP: // 0x50
@@ -513,7 +512,7 @@ func (c *Contract) execute(st engine.State, params engine.CallParams) ([]byte, e
 
 		case SSTORE: // 0x55
 			loc, data := stack.Pop(), stack.Pop()
-			maybe.PushError(useGasNegative(params.Gas, native.GasStorageUpdate))
+			maybe.PushError(engine.UseGasNegative(params.Gas, engine.GasStorageUpdate))
 			maybe.PushError(st.CallFrame.SetStorage(params.Callee, loc, data.Bytes()))
 			c.debugf("%v {%v := %v}\n", params.Callee, loc, data)
 
@@ -544,8 +543,8 @@ func (c *Contract) execute(st engine.State, params engine.CallParams) ([]byte, e
 			c.debugf(" => 0x%X\n", capacity)
 
 		case GAS: // 0x5A
-			stack.Push64(*params.Gas)
-			c.debugf(" => %X\n", *params.Gas)
+			stack.PushBigInt(params.Gas)
+			c.debugf(" => %X\n", params.Gas)
 
 		case JUMPDEST: // 0x5B
 			c.debugf("\n")
@@ -586,12 +585,12 @@ func (c *Contract) execute(st engine.State, params engine.CallParams) ([]byte, e
 
 		case CREATE, CREATE2: // 0xF0, 0xFB
 			returnData = nil
-			contractValue := stack.Pop64()
+			contractValue := stack.PopBigInt()
 			offset, size := stack.PopBigInt(), stack.PopBigInt()
 			input := memory.Read(offset, size)
 
 			// TODO charge for gas to create account _ the code length * GasCreateByte
-			maybe.PushError(useGasNegative(params.Gas, native.GasCreateAccount))
+			maybe.PushError(engine.UseGasNegative(params.Gas, engine.GasCreateAccount))
 
 			var newAccountAddress crypto.Address
 			if op == CREATE {
@@ -629,7 +628,7 @@ func (c *Contract) execute(st engine.State, params engine.CallParams) ([]byte, e
 					Caller: params.Callee,
 					Callee: newAccountAddress,
 					Input:  input,
-					Value:  contractValue,
+					Value:  *contractValue,
 					Gas:    params.Gas,
 				})
 			if callErr != nil {
@@ -639,7 +638,7 @@ func (c *Contract) execute(st engine.State, params engine.CallParams) ([]byte, e
 				returnData = ret
 			} else {
 				// Update the account with its initialised contract code
-				maybe.PushError(native.InitChildCode(childCallFrame, newAccountAddress, params.Callee, ret))
+				maybe.PushError(engine.InitChildCode(childCallFrame, newAccountAddress, params.Callee, ret))
 				maybe.PushError(childCallFrame.Sync())
 				stack.PushAddress(newAccountAddress)
 			}
@@ -651,7 +650,7 @@ func (c *Contract) execute(st engine.State, params engine.CallParams) ([]byte, e
 				continue
 			}
 			// Pull arguments off stack:
-			gasLimit := stack.Pop64()
+			gasLimit := stack.PopBigInt()
 			target := stack.PopAddress()
 			value := params.Value
 			// NOTE: for DELEGATECALL value is preserved from the original
@@ -660,7 +659,7 @@ func (c *Contract) execute(st engine.State, params engine.CallParams) ([]byte, e
 			// caller value is used.  for CALL and CALLCODE value is stored
 			// on stack and needs to be overwritten from the given value.
 			if op != DELEGATECALL && op != STATICCALL {
-				value = stack.Pop64()
+				value = *stack.PopBigInt()
 			}
 			// inputs
 			inOffset, inSize := stack.PopBigInt(), stack.PopBigInt()
@@ -669,121 +668,22 @@ func (c *Contract) execute(st engine.State, params engine.CallParams) ([]byte, e
 			retSize := stack.Pop64()
 			c.debugf(" => %v\n", target)
 
-			// Get the arguments from the memory
-			// EVM contract
-			maybe.PushError(useGasNegative(params.Gas, native.GasGetAccount))
-			// since CALL is used also for sending funds,
-			// acc may not exist yet. This is an errors.CodedError for
-			// CALLCODE, but not for CALL, though I don't think
-			// ethereum actually cares
-			acc := engine.GetAccount(st.CallFrame, maybe, target)
-			if acc == nil {
-				if op != CALL {
-					maybe.PushError(errors.Codes.UnknownAddress)
-					continue
-				}
-				// We're sending funds to a new account so we must create it first
-				if maybe.PushError(st.CallFrame.CreateAccount(params.Callee, target)) {
-					continue
-				}
-				acc = engine.MustGetAccount(st.CallFrame, maybe, target)
-			}
-
-			// Establish a stack frame and perform the call
-			childCallFrame, err := st.CallFrame.NewFrame()
-			if maybe.PushError(err) {
-				continue
-			}
-			childState := engine.State{
-				CallFrame:  childCallFrame,
-				Blockchain: st.Blockchain,
-				EventSink:  st.EventSink,
-			}
-			// Ensure that gasLimit is reasonable
-			if *params.Gas < gasLimit {
-				// EIP150 - the 63/64 rule - rather than errors.CodedError we pass this specified fraction of the total available gas
-				gasLimit = *params.Gas - *params.Gas/64
-			}
-			// NOTE: we will return any used gas later.
-			*params.Gas -= gasLimit
-
-			// Setup callee params for call type
-
-			calleeParams := engine.CallParams{
-				Origin: params.Origin,
-				Input:  memory.Read(inOffset, inSize),
-				Value:  value,
-				Gas:    &gasLimit,
-			}
-
-			// Set up the caller/callee context
-			switch op {
-			case CALL:
-				// Calls contract at target from this contract normally
-				// Value: transferred
-				// Caller: this contract
-				// Storage: target
-				// Code: from target
-
-				calleeParams.CallType = exec.CallTypeCall
-				calleeParams.Caller = params.Callee
-				calleeParams.Callee = target
-
-			case STATICCALL:
-				// Calls contract at target from this contract with no state mutation
-				// Value: not transferred
-				// Caller: this contract
-				// Storage: target (read-only)
-				// Code: from target
-
-				calleeParams.CallType = exec.CallTypeStatic
-				calleeParams.Caller = params.Callee
-				calleeParams.Callee = target
-
-				childState.CallFrame.ReadOnly()
-				childState.EventSink = exec.NewLogFreeEventSink(childState.EventSink)
-
-			case CALLCODE:
-				// Calling this contract from itself as if it had the code at target
-				// Value: transferred
-				// Caller: this contract
-				// Storage: this contract
-				// Code: from target
-
-				calleeParams.CallType = exec.CallTypeCode
-				calleeParams.Caller = params.Callee
-				calleeParams.Callee = params.Callee
-
-			case DELEGATECALL:
-				// Calling this contract from the original caller as if it had the code at target
-				// Value: not transferred
-				// Caller: original caller
-				// Storage: this contract
-				// Code: from target
-
-				calleeParams.CallType = exec.CallTypeDelegate
-				calleeParams.Caller = params.Caller
-				calleeParams.Callee = params.Callee
-
-			default:
-				panic(fmt.Errorf("switch statement should be exhaustive so this should not have been reached"))
-			}
-
-			var callErr error
-			returnData, callErr = c.Dispatch(acc).Call(childState, calleeParams)
-
-			if callErr == nil {
-				// Sync error is a hard stop
-				maybe.PushError(childState.CallFrame.Sync())
-			}
+			var err error
+			returnData, err = engine.CallFromSite(st, maybe, c, params, engine.CallParams{
+				CallType: callTypeFromOpCode(op),
+				Callee:   target,
+				Input:    memory.Read(inOffset, inSize),
+				Value:    value,
+				Gas:      gasLimit,
+			})
 
 			// Push result
-			if callErr != nil {
-				c.debugf("error from nested sub-call (depth: %v): %s\n", st.CallFrame.CallStackDepth(), callErr.Error())
+			if err != nil {
+				c.debugf("error from nested sub-call (depth: %v): %s\n", st.CallFrame.CallStackDepth(), err)
 				// So we can return nested errors.CodedError if the top level return is an errors.CodedError
 				stack.Push(Zero256)
 
-				if errors.GetCode(callErr) == errors.Codes.ExecutionReverted {
+				if errors.GetCode(err) == errors.Codes.ExecutionReverted {
 					memory.Write(retOffset, RightPadBytes(returnData, int(retSize)))
 				}
 			} else {
@@ -795,8 +695,9 @@ func (c *Contract) execute(st engine.State, params engine.CallParams) ([]byte, e
 				memory.Write(retOffset, RightPadBytes(returnData, int(retSize)))
 			}
 
-			// Handle remaining gas.
-			*params.Gas += *calleeParams.Gas
+			// TODO: decide how to handle this
+			// Apply refund of any unused gas
+			params.Gas.Add(params.Gas, gasLimit)
 
 			c.debugf("resume %s (%v)\n", params.Callee, params.Gas)
 
@@ -819,19 +720,19 @@ func (c *Contract) execute(st engine.State, params engine.CallParams) ([]byte, e
 
 		case SELFDESTRUCT: // 0xFF
 			receiver := stack.PopAddress()
-			maybe.PushError(useGasNegative(params.Gas, native.GasGetAccount))
+			maybe.PushError(engine.UseGasNegative(params.Gas, engine.GasGetAccount))
 			if engine.GetAccount(st.CallFrame, maybe, receiver) == nil {
 				// If receiver address doesn't exist, try to create it
-				maybe.PushError(useGasNegative(params.Gas, native.GasCreateAccount))
+				maybe.PushError(engine.UseGasNegative(params.Gas, engine.GasCreateAccount))
 				if maybe.PushError(st.CallFrame.CreateAccount(params.Callee, receiver)) {
 					continue
 				}
 			}
 			balance := engine.MustGetAccount(st.CallFrame, maybe, params.Callee).Balance
-			maybe.PushError(native.UpdateAccount(st.CallFrame, receiver, func(account *acm.Account) error {
+			maybe.PushError(engine.UpdateAccount(st.CallFrame, receiver, func(account *acm.Account) error {
 				return account.AddToBalance(balance)
 			}))
-			maybe.PushError(native.RemoveAccount(st.CallFrame, params.Callee))
+			maybe.PushError(engine.RemoveAccount(st.CallFrame, params.Callee))
 			c.debugf(" => (%X) %v\n", receiver[:4], balance)
 			return nil, maybe.Error()
 
@@ -860,17 +761,6 @@ func (c *Contract) jump(to uint64, pc *uint64) error {
 	return nil
 }
 
-// Try to deduct gasToUse from gasLeft.  If ok return false, otherwise
-// set err and return true.
-func useGasNegative(gasLeft *uint64, gasToUse uint64) error {
-	if *gasLeft >= gasToUse {
-		*gasLeft -= gasToUse
-	} else {
-		return errors.Codes.InsufficientGas
-	}
-	return nil
-}
-
 // Returns a subslice from offset of length length and a bool
 // (true iff slice was possible). If the subslice
 // extends past the end of data it returns A COPY of the segment at the end of
@@ -889,14 +779,6 @@ func subslice(data []byte, offset, length uint64) ([]byte, error) {
 		return ret, nil
 	}
 	return data[offset : offset+length], nil
-}
-
-func codeGetOp(code []byte, n uint64) OpCode {
-	if uint64(len(code)) <= n {
-		return OpCode(0) // stop
-	} else {
-		return OpCode(code[n])
-	}
 }
 
 // Dump the bytecode being sent to the EVM in the current working directory
@@ -934,4 +816,19 @@ func newRevertException(ret []byte) errors.CodedError {
 		}
 	}
 	return code
+}
+
+func callTypeFromOpCode(o OpCode) exec.CallType {
+	switch o {
+	case CALL:
+		return exec.CallTypeCall
+	case CALLCODE:
+		return exec.CallTypeCode
+	case STATICCALL:
+		return exec.CallTypeStatic
+	case DELEGATECALL:
+		return exec.CallTypeDelegate
+	default:
+		return exec.CallTypeInvalid
+	}
 }

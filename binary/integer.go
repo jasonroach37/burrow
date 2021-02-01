@@ -67,6 +67,22 @@ func SignExtend(x *big.Int, n uint) *big.Int {
 	}
 }
 
+func reverseBytes(bs []byte) []byte {
+	revBs := make([]byte, len(bs))
+	for i, b := range bs {
+		revBs[len(bs)-1-i] = b
+	}
+	return revBs
+}
+
+func BigIntFromLittleEndianBytes(bs []byte) *big.Int {
+	return new(big.Int).SetBytes(reverseBytes(bs))
+}
+
+func BigIntToLittleEndianBytes(x *big.Int) []byte {
+	return reverseBytes(x.Bytes())
+}
+
 func andMask(n uint) *big.Int {
 	x := new(big.Int)
 	return x.Sub(x.Lsh(big1, n), big1)

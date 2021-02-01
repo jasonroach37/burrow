@@ -10,7 +10,6 @@ import (
 	"github.com/hyperledger/burrow/execution/errors"
 	"github.com/hyperledger/burrow/execution/evm"
 	"github.com/hyperledger/burrow/execution/exec"
-	"github.com/hyperledger/burrow/execution/native"
 	"github.com/hyperledger/burrow/execution/wasm"
 	"github.com/hyperledger/burrow/logging"
 	"github.com/hyperledger/burrow/logging/structure"
@@ -144,7 +143,7 @@ func (ctx *CallContext) Deliver(inAcc, outAcc *acm.Account, value uint64) error 
 			"init_code", code)
 
 		// store abis
-		err = native.UpdateContractMeta(txCache, metaCache, callee, ctx.tx.ContractMeta)
+		err = engine.UpdateContractMeta(txCache, metaCache, callee, ctx.tx.ContractMeta)
 		if err != nil {
 			return err
 		}
@@ -206,7 +205,7 @@ func (ctx *CallContext) Deliver(inAcc, outAcc *acm.Account, value uint64) error 
 		} else {
 			ctx.Logger.TraceMsg("Successful execution")
 			if createContract {
-				err := native.InitWASMCode(txCache, callee, ret)
+				err := engine.InitWASMCode(txCache, callee, ret)
 				if err != nil {
 					return err
 				}
@@ -233,7 +232,7 @@ func (ctx *CallContext) Deliver(inAcc, outAcc *acm.Account, value uint64) error 
 		} else {
 			ctx.Logger.TraceMsg("Successful execution")
 			if createContract {
-				err := native.InitEVMCode(txCache, callee, ret)
+				err := engine.InitEVMCode(txCache, callee, ret)
 				if err != nil {
 					return err
 				}

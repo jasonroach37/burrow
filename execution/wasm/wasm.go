@@ -33,10 +33,20 @@ type Options struct {
 }
 
 func New(options Options) *WVM {
+	if options.Natives == nil {
+		options.Natives = native.MustDefaultNatives()
+	}
+	if options.Logger == nil {
+		options.Logger = logging.NewNoopLogger()
+	}
 	return &WVM{
 		options:  options,
 		vmConfig: DefaultVMConfig,
 	}
+}
+
+func Default() *WVM {
+	return New(Options{})
 }
 
 // RunWASM creates a WASM VM, and executes the given WASM contract code
@@ -48,8 +58,6 @@ func (vm *WVM) Execute(st acmstate.ReaderWriter, blockchain engine.Blockchain, e
 		}
 	}()
 
-	contract := vm.Contract(code)
-
 	st = native.NewState(vm.options.Natives, st)
 
 	state := engine.State{
@@ -58,9 +66,15 @@ func (vm *WVM) Execute(st acmstate.ReaderWriter, blockchain engine.Blockchain, e
 		EventSink:  eventSink,
 	}
 
-	return contract.execute(state, params)
-}
+	output, err := vm.Contract(code).Call(state, params)
 
+	if err == nil {
+		// Only sync back when there was no exception
+		err = state.CallFrame.Sync()
+	}
+	// Always return output - we may have a reverted exception for which the return is meaningful
+	return output, err
+}
 
 func (vm *WVM) Dispatch(acc *acm.Account) engine.Callable {
 	callable := vm.Externals.Dispatch(acc)
@@ -72,8 +86,7 @@ func (vm *WVM) Dispatch(acc *acm.Account) engine.Callable {
 
 func (vm *WVM) Contract(code []byte) *Contract {
 	return &Contract{
-		WVM:  vm,
+		vm:  vm,
 		code: code,
 	}
 }
-

@@ -1,4 +1,4 @@
-package native
+package engine
 
 import (
 	"testing"
@@ -6,7 +6,6 @@ import (
 	"github.com/hyperledger/burrow/acm"
 	"github.com/hyperledger/burrow/acm/acmstate"
 	"github.com/hyperledger/burrow/crypto"
-	"github.com/hyperledger/burrow/execution/engine"
 	"github.com/hyperledger/burrow/execution/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -15,14 +14,14 @@ import (
 func TestState_CreateAccount(t *testing.T) {
 	st := acmstate.NewMemoryState()
 	address := AddressFromName("frogs")
-	err := engine.CreateAccount(st, address)
+	err := CreateAccount(st, address)
 	require.NoError(t, err)
-	err = engine.CreateAccount(st, address)
+	err = CreateAccount(st, address)
 	require.Error(t, err)
 	require.Equal(t, errors.Codes.DuplicateAddress, errors.GetCode(err))
 
 	st = acmstate.NewMemoryState()
-	err = engine.CreateAccount(st, address)
+	err = CreateAccount(st, address)
 	require.NoError(t, err)
 	err = InitEVMCode(st, address, []byte{1, 2, 3})
 	require.NoError(t, err)
@@ -30,10 +29,10 @@ func TestState_CreateAccount(t *testing.T) {
 
 func TestState_Sync(t *testing.T) {
 	backend := acmstate.NewCache(acmstate.NewMemoryState())
-	st := engine.NewCallFrame(backend)
+	st := NewCallFrame(backend)
 	address := AddressFromName("frogs")
 
-	err := engine.CreateAccount(st, address)
+	err := CreateAccount(st, address)
 	require.NoError(t, err)
 	amt := uint64(1232)
 	addToBalance(t, st, address, amt)
@@ -46,12 +45,12 @@ func TestState_Sync(t *testing.T) {
 }
 
 func TestState_NewCache(t *testing.T) {
-	st := engine.NewCallFrame(acmstate.NewMemoryState())
+	st := NewCallFrame(acmstate.NewMemoryState())
 	address := AddressFromName("frogs")
 
 	cache, err := st.NewFrame()
 	require.NoError(t, err)
-	err = engine.CreateAccount(cache, address)
+	err = CreateAccount(cache, address)
 	require.NoError(t, err)
 	amt := uint64(1232)
 	addToBalance(t, cache, address, amt)
@@ -64,7 +63,7 @@ func TestState_NewCache(t *testing.T) {
 	err = cache.Sync()
 	require.NoError(t, err)
 
-	acc, err = mustAccount(cache, address)
+	acc, err = MustAccount(cache, address)
 	require.NoError(t, err)
 	assert.Equal(t, amt, acc.Balance)
 
