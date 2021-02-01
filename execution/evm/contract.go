@@ -9,10 +9,8 @@ import (
 	"strings"
 
 	"github.com/hyperledger/burrow/acm"
-	"github.com/hyperledger/burrow/acm/acmstate"
 	. "github.com/hyperledger/burrow/binary"
 	"github.com/hyperledger/burrow/crypto"
-
 	"github.com/hyperledger/burrow/execution/engine"
 	"github.com/hyperledger/burrow/execution/errors"
 	"github.com/hyperledger/burrow/execution/evm/abi"
@@ -335,7 +333,7 @@ func (c *Contract) execute(st engine.State, params engine.CallParams) ([]byte, e
 		case BALANCE: // 0x31
 			address := stack.PopAddress()
 			maybe.PushError(useGasNegative(params.Gas, native.GasGetAccount))
-			balance := mustGetAccount(st.CallFrame, maybe, address).Balance
+			balance := engine.MustGetAccount(st.CallFrame, maybe, address).Balance
 			stack.Push64(balance)
 			c.debugf(" => %v (%v)\n", balance, address)
 
@@ -390,7 +388,7 @@ func (c *Contract) execute(st engine.State, params engine.CallParams) ([]byte, e
 		case EXTCODESIZE: // 0x3B
 			address := stack.PopAddress()
 			maybe.PushError(useGasNegative(params.Gas, native.GasGetAccount))
-			acc := mustGetAccount(st.CallFrame, maybe, address)
+			acc := engine.MustGetAccount(st.CallFrame, maybe, address)
 			if acc == nil {
 				stack.Push(Zero256)
 				c.debugf(" => 0\n")
@@ -402,7 +400,7 @@ func (c *Contract) execute(st engine.State, params engine.CallParams) ([]byte, e
 		case EXTCODECOPY: // 0x3C
 			address := stack.PopAddress()
 			maybe.PushError(useGasNegative(params.Gas, native.GasGetAccount))
-			acc := mustGetAccount(st.CallFrame, maybe, address)
+			acc := engine.MustGetAccount(st.CallFrame, maybe, address)
 			if acc == nil {
 				maybe.PushError(errors.Codes.UnknownAddress)
 			} else {
@@ -434,7 +432,7 @@ func (c *Contract) execute(st engine.State, params engine.CallParams) ([]byte, e
 		case EXTCODEHASH: // 0x3F
 			address := stack.PopAddress()
 
-			acc := getAccount(st.CallFrame, maybe, address)
+			acc := engine.GetAccount(st.CallFrame, maybe, address)
 			if acc == nil {
 				// In case the account does not exist 0 is pushed to the stack.
 				stack.Push64(0)
@@ -604,19 +602,19 @@ func (c *Contract) execute(st engine.State, params engine.CallParams) ([]byte, e
 				newAccountAddress = crypto.NewContractAddress(params.Callee, nonce)
 			} else if op == CREATE2 {
 				salt := stack.Pop()
-				code := mustGetAccount(st.CallFrame, maybe, params.Callee).EVMCode
+				code := engine.MustGetAccount(st.CallFrame, maybe, params.Callee).EVMCode
 				newAccountAddress = crypto.NewContractAddress2(params.Callee, salt, code)
 			}
 
 			// Check the CreateContract permission for this account
-			if maybe.PushError(ensurePermission(st.CallFrame, params.Callee, permission.CreateContract)) {
+			if maybe.PushError(engine.EnsurePermission(st.CallFrame, params.Callee, permission.CreateContract)) {
 				continue
 			}
 
 			// Establish a frame in which the putative account exists
 			childCallFrame, err := st.CallFrame.NewFrame()
 			maybe.PushError(err)
-			maybe.PushError(native.CreateAccount(childCallFrame, newAccountAddress))
+			maybe.PushError(engine.CreateAccount(childCallFrame, newAccountAddress))
 
 			// Run the input to get the contract code.
 			// NOTE: no need to copy 'input' as per Call contract.
@@ -649,7 +647,7 @@ func (c *Contract) execute(st engine.State, params engine.CallParams) ([]byte, e
 		case CALL, CALLCODE, DELEGATECALL, STATICCALL: // 0xF1, 0xF2, 0xF4, 0xFA
 			returnData = nil
 
-			if maybe.PushError(ensurePermission(st.CallFrame, params.Callee, permission.Call)) {
+			if maybe.PushError(engine.EnsurePermission(st.CallFrame, params.Callee, permission.Call)) {
 				continue
 			}
 			// Pull arguments off stack:
@@ -678,17 +676,17 @@ func (c *Contract) execute(st engine.State, params engine.CallParams) ([]byte, e
 			// acc may not exist yet. This is an errors.CodedError for
 			// CALLCODE, but not for CALL, though I don't think
 			// ethereum actually cares
-			acc := getAccount(st.CallFrame, maybe, target)
+			acc := engine.GetAccount(st.CallFrame, maybe, target)
 			if acc == nil {
 				if op != CALL {
 					maybe.PushError(errors.Codes.UnknownAddress)
 					continue
 				}
 				// We're sending funds to a new account so we must create it first
-				if maybe.PushError(createAccount(st.CallFrame, params.Callee, target)) {
+				if maybe.PushError(st.CallFrame.CreateAccount(params.Callee, target)) {
 					continue
 				}
-				acc = mustGetAccount(st.CallFrame, maybe, target)
+				acc = engine.MustGetAccount(st.CallFrame, maybe, target)
 			}
 
 			// Establish a stack frame and perform the call
@@ -822,14 +820,14 @@ func (c *Contract) execute(st engine.State, params engine.CallParams) ([]byte, e
 		case SELFDESTRUCT: // 0xFF
 			receiver := stack.PopAddress()
 			maybe.PushError(useGasNegative(params.Gas, native.GasGetAccount))
-			if getAccount(st.CallFrame, maybe, receiver) == nil {
+			if engine.GetAccount(st.CallFrame, maybe, receiver) == nil {
 				// If receiver address doesn't exist, try to create it
 				maybe.PushError(useGasNegative(params.Gas, native.GasCreateAccount))
-				if maybe.PushError(createAccount(st.CallFrame, params.Callee, receiver)) {
+				if maybe.PushError(st.CallFrame.CreateAccount(params.Callee, receiver)) {
 					continue
 				}
 			}
-			balance := mustGetAccount(st.CallFrame, maybe, params.Callee).Balance
+			balance := engine.MustGetAccount(st.CallFrame, maybe, params.Callee).Balance
 			maybe.PushError(native.UpdateAccount(st.CallFrame, receiver, func(account *acm.Account) error {
 				return account.AddToBalance(balance)
 			}))
@@ -859,47 +857,6 @@ func (c *Contract) jump(to uint64, pc *uint64) error {
 	}
 	c.debugf(" ~> %v\n", to)
 	*pc = to
-	return nil
-}
-
-func createAccount(callFrame *engine.CallFrame, creator, address crypto.Address) error {
-	err := ensurePermission(callFrame, creator, permission.CreateAccount)
-	if err != nil {
-		return err
-	}
-	return native.CreateAccount(callFrame, address)
-}
-
-func getAccount(st acmstate.Reader, m *errors.Maybe, address crypto.Address) *acm.Account {
-	acc, err := st.GetAccount(address)
-	if err != nil {
-		m.PushError(err)
-		return nil
-	}
-	return acc
-}
-
-// Guaranteed to return a non-nil account, if the account does not exist returns a pointer to the zero-value of Account
-// and pushes an error.
-func mustGetAccount(st acmstate.Reader, m *errors.Maybe, address crypto.Address) *acm.Account {
-	acc := getAccount(st, m, address)
-	if acc == nil {
-		m.PushError(errors.Errorf(errors.Codes.NonExistentAccount, "account %v does not exist", address))
-		return &acm.Account{}
-	}
-	return acc
-}
-
-func ensurePermission(callFrame *engine.CallFrame, address crypto.Address, perm permission.PermFlag) error {
-	hasPermission, err := native.HasPermission(callFrame, address, perm)
-	if err != nil {
-		return err
-	} else if !hasPermission {
-		return errors.PermissionDenied{
-			Address: address,
-			Perm:    perm,
-		}
-	}
 	return nil
 }
 

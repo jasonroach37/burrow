@@ -12,23 +12,6 @@ import (
 	"golang.org/x/crypto/sha3"
 )
 
-func CreateAccount(st acmstate.ReaderWriter, address crypto.Address) error {
-	acc, err := st.GetAccount(address)
-	if err != nil {
-		return err
-	}
-	if acc != nil {
-		if acc.NativeName != "" {
-			return errors.Errorf(errors.Codes.ReservedAddress,
-				"cannot create account at %v because that address is reserved for a native contract '%s'",
-				address, acc.NativeName)
-		}
-		return errors.Errorf(errors.Codes.DuplicateAddress,
-			"tried to create an account at an address that already exists: %v", address)
-	}
-	return st.UpdateAccount(&acm.Account{Address: address})
-}
-
 func InitEVMCode(st acmstate.ReaderWriter, address crypto.Address, code []byte) error {
 	return initEVMCode(st, address, nil, code)
 }

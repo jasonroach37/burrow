@@ -135,7 +135,7 @@ func (ctx *CallContext) Deliver(inAcc, outAcc *acm.Account, value uint64) error 
 		callee = crypto.NewContractAddress(caller, ctx.txe.TxHash)
 		code = ctx.tx.Data
 		wcode = ctx.tx.WASM
-		err := native.CreateAccount(txCache, callee)
+		err := engine.CreateAccount(txCache, callee)
 		if err != nil {
 			return err
 		}

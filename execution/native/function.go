@@ -77,7 +77,7 @@ func (f *Function) Call(state engine.State, params engine.CallParams) ([]byte, e
 
 func (f *Function) execute(state engine.State, params engine.CallParams) ([]byte, error) {
 	// check if we have permission to call this function
-	hasPermission, err := HasPermission(state.CallFrame, params.Caller, f.PermFlag)
+	hasPermission, err := engine.HasPermission(state.CallFrame, params.Caller, f.PermFlag)
 	if err != nil {
 		return nil, err
 	}

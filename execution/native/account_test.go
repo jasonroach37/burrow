@@ -15,14 +15,14 @@ import (
 func TestState_CreateAccount(t *testing.T) {
 	st := acmstate.NewMemoryState()
 	address := AddressFromName("frogs")
-	err := CreateAccount(st, address)
+	err := engine.CreateAccount(st, address)
 	require.NoError(t, err)
-	err = CreateAccount(st, address)
+	err = engine.CreateAccount(st, address)
 	require.Error(t, err)
 	require.Equal(t, errors.Codes.DuplicateAddress, errors.GetCode(err))
 
 	st = acmstate.NewMemoryState()
-	err = CreateAccount(st, address)
+	err = engine.CreateAccount(st, address)
 	require.NoError(t, err)
 	err = InitEVMCode(st, address, []byte{1, 2, 3})
 	require.NoError(t, err)
@@ -33,7 +33,7 @@ func TestState_Sync(t *testing.T) {
 	st := engine.NewCallFrame(backend)
 	address := AddressFromName("frogs")
 
-	err := CreateAccount(st, address)
+	err := engine.CreateAccount(st, address)
 	require.NoError(t, err)
 	amt := uint64(1232)
 	addToBalance(t, st, address, amt)
@@ -51,7 +51,7 @@ func TestState_NewCache(t *testing.T) {
 
 	cache, err := st.NewFrame()
 	require.NoError(t, err)
-	err = CreateAccount(cache, address)
+	err = engine.CreateAccount(cache, address)
 	require.NoError(t, err)
 	amt := uint64(1232)
 	addToBalance(t, cache, address, amt)

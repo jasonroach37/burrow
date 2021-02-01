@@ -130,7 +130,7 @@ func TestHasPermission(t *testing.T) {
 	// Ensure we are falling through to global permissions on those bits not set
 
 	flag := permission.Send | permission.Call | permission.Name | permission.HasRole
-	hasPermission, err := HasPermission(cache, acc.Address, flag)
+	hasPermission, err := engine.HasPermission(cache, acc.Address, flag)
 	require.NoError(t, err)
 	assert.True(t, hasPermission)
 }

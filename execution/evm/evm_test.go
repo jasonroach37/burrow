@@ -1348,9 +1348,9 @@ func TestEVM(t *testing.T) {
 		address1 := crypto.Address{1, 3, 5, 7, 9}
 		address2 := crypto.Address{2, 4, 6, 8, 10}
 
-		err := native.CreateAccount(st, address1)
+		err := engine.CreateAccount(st, address1)
 		require.NoError(t, err)
-		err = native.CreateAccount(st, address2)
+		err = engine.CreateAccount(st, address2)
 		require.NoError(t, err)
 
 		var gas uint64 = 100000
@@ -1710,14 +1710,14 @@ func (b *blockchain) BlockHash(height uint64) ([]byte, error) {
 
 func newAccount(t testing.TB, st acmstate.ReaderWriter, name string) crypto.Address {
 	address := native.AddressFromName(name)
-	err := native.CreateAccount(st, address)
+	err := engine.CreateAccount(st, address)
 	require.NoError(t, err)
 	return address
 }
 
 func makeAccountWithCode(t testing.TB, st acmstate.ReaderWriter, name string, code []byte) crypto.Address {
 	address := native.AddressFromName(name)
-	err := native.CreateAccount(st, address)
+	err := engine.CreateAccount(st, address)
 	require.NoError(t, err)
 	err = native.InitEVMCode(st, address, code)
 	require.NoError(t, err)

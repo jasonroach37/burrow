@@ -2,9 +2,9 @@ package native
 
 import (
 	"fmt"
+	"github.com/hyperledger/burrow/execution/engine"
 
 	"github.com/hyperledger/burrow/acm"
-	"github.com/hyperledger/burrow/acm/acmstate"
 	"github.com/hyperledger/burrow/crypto"
 	"github.com/hyperledger/burrow/permission"
 )
@@ -85,32 +85,6 @@ var Permissions = New().MustContract("Permissions",
 	},
 )
 
-// CONTRACT: it is the duty of the contract writer to call known permissions
-// we do not convey if a permission is not set
-// (unlike in state/execution, where we guarantee HasPermission is called
-// on known permissions and panics else)
-// If the perm is not defined in the acc nor set by default in GlobalPermissions,
-// this function returns false.
-func HasPermission(st acmstate.Reader, address crypto.Address, perm permission.PermFlag) (bool, error) {
-	acc, err := st.GetAccount(address)
-	if err != nil {
-		return false, err
-	}
-	if acc == nil {
-		return false, fmt.Errorf("account %v does not exist", address)
-	}
-	globalPerms, err := acmstate.GlobalAccountPermissions(st)
-	if err != nil {
-		return false, err
-	}
-	perms := acc.Permissions.Base.Compose(globalPerms.Base)
-	value, err := perms.Get(perm)
-	if err != nil {
-		return false, err
-	}
-	return value, nil
-}
-
 type hasBaseArgs struct {
 	Account    crypto.Address
 	Permission uint64
@@ -125,7 +99,7 @@ func hasBase(ctx Context, args hasBaseArgs) (hasBaseRets, error) {
 	if !permN.IsValid() {
 		return hasBaseRets{}, permission.ErrInvalidPermission(permN)
 	}
-	hasPermission, err := HasPermission(ctx.State, args.Account, permN)
+	hasPermission, err := engine.HasPermission(ctx.State, args.Account, permN)
 	if err != nil {
 		return hasBaseRets{}, err
 	}
